@@ -24,10 +24,10 @@
 extern zend_class_entry *riak_connection_ce;
 
 typedef struct _client_data {
-  /* required */
-  zend_object std;
+    riak_connection *connection;
 
-  riak_connection *connection;
+    /* required; also, variable length */
+    zend_object std;
 } client_data;
 
 /*************************************************
@@ -40,13 +40,13 @@ typedef struct _client_data {
 * Functions
 *************************************************/
 
-zval* create_client_object(char* host, long port TSRMLS_DC);
+int create_object_connection(zval* zclient TSRMLS_DC);
 
 void riak_connection_init(TSRMLS_D);
-int create_object_connection(zval* zConn TSRMLS_DC);
-riak_connection *get_client_connection(zval *zclient TSRMLS_DC);
-zend_object_value create_client_data(zend_class_entry *class_type TSRMLS_DC);
+zend_object* create_client_data(zend_class_entry *class_type TSRMLS_DC);
 void free_client_data(void *object TSRMLS_DC);
+void create_client_object(zval* zclient, char* host, long port TSRMLS_DC);
+riak_connection *get_client_connection(zval *zclient TSRMLS_DC);
 
 PHP_METHOD(RiakConnection, __construct);
 PHP_METHOD(RiakConnection, ping);

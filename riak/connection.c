@@ -44,10 +44,8 @@ static zend_function_entry riak_connection_methods[] = {
     PHP_ME(RiakConnection, getPort, arginfo_riak_connection_noargs, ZEND_ACC_PUBLIC)
     PHP_ME(RiakConnection, getBucket, arginfo_riak_connection_get_bucket, ZEND_ACC_PUBLIC)
     PHP_ME(RiakConnection, getServerInfo, arginfo_riak_connection_noargs, ZEND_ACC_PUBLIC)
-	{NULL, NULL, NULL}
+    {NULL, NULL, NULL}
 };
-
-
 
 void riak_connection_init(TSRMLS_D) /* {{{ */
 {
@@ -63,35 +61,29 @@ void riak_connection_init(TSRMLS_D) /* {{{ */
 }
 /* }}} */
 
-zend_object_value create_client_data(zend_class_entry *class_type TSRMLS_DC) /* {{{ */
+zend_object *create_client_data(zend_class_entry *class_type TSRMLS_DC) /* {{{ */
 {
-    zend_object_value retval;
+    zend_object_handlers client_data_handlers;
     client_data *tobj;
 
-    tobj = emalloc(sizeof(client_data));
+    tobj = ecalloc(1, sizeof(client_data) + zend_object_properties_size(class_type));
 
-    memset(tobj, 0, sizeof(client_data));
     zend_object_std_init((zend_object *) &tobj->std, class_type TSRMLS_CC);
 
-#if ZEND_MODULE_API_NO >= 20100525
-    object_properties_init((zend_object*) &tobj->std, class_type);
-#else
-    {
-        zval *tmp;
-        zend_hash_copy(tobj->std.properties, &class_type->default_properties, (copy_ctor_func_t)zval_add_ref, (void *)&tmp, sizeof(zval *));
-    }
-#endif
+    client_data_handlers.offset = XtOffsetOf(struct tobj, std);
+    client_data_handlers.free_obj = free_client_data;
 
-    retval.handle   = zend_objects_store_put(tobj, (zend_objects_store_dtor_t) zend_objects_destroy_object, (zend_objects_free_object_storage_t) free_client_data, NULL TSRMLS_CC);
-    retval.handlers = zend_get_std_object_handlers();
+    tobj->std.handlers = client_data_handlers;
 
-    return retval;
+    return &tobj->std;
 }
 /* }}} */
 
 void free_client_data(void *object TSRMLS_DC) /* {{{ */
 {
-    client_data* data = (client_data*)object;
+    client_data *data;
+
+    data = (client_data *) ((char *) object - XtOffsetOf(client_data, std));
 
     zend_object_std_dtor(&data->std TSRMLS_CC);
 
@@ -103,34 +95,26 @@ void free_client_data(void *object TSRMLS_DC) /* {{{ */
 }
 /* }}} */
 
-zval* create_client_object(char* host, long port TSRMLS_DC) /* {{{ */
+void create_client_object(zval *zclient, char *host, long port TSRMLS_DC) /* {{{ */
 {
-    zval *zclient, *zhost, *zport;
+    zval zhost, zport;
 
-    MAKE_STD_ZVAL(zhost);
-    MAKE_STD_ZVAL(zport);
-    ZVAL_STRING(zhost, host, 1);
-    ZVAL_LONG(zport, port);
+    ZVAL_STRING(&zhost, host, 1);
+    ZVAL_LONG(&zport, port);
 
-	MAKE_STD_ZVAL(zclient);
     object_init_ex(zclient, riak_connection_ce);
-    RIAK_CALL_METHOD2(RiakConnection, __construct, zclient, zclient, zhost, zport);
+    RIAK_CALL_METHOD2(RiakConnection, __construct, zclient, zclient, &zhost, &zport);
 
-    zval_ptr_dtor(&zhost);
-    zval_ptr_dtor(&zport);
-
-	return zclient;
+    zval_dtor(&zhost);
+    zval_dtor(&zport);
 }
 /* }}} */
 
 riak_connection *get_client_connection(zval *zclient TSRMLS_DC)/* {{{ */
 {
     client_data *data;
-    if ( ! zclient) {
-        return NULL;
-    }
 
-    data = (client_data*) zend_object_store_get_object(zclient TSRMLS_CC);
+    data = (client_data *) ((char *) zclient - XtOffsetOf(client_data, std));
 
     if (data->connection) {
         ensure_connected(data->connection TSRMLS_CC);
@@ -146,19 +130,19 @@ riak_connection *get_client_connection(zval *zclient TSRMLS_DC)/* {{{ */
 }
 /* }}} */
 
-int create_object_connection(zval* zConn TSRMLS_DC)/* {{{ */
+int create_object_connection(zval *zclient TSRMLS_DC)/* {{{ */
 {
-    client_data* data;
-    zval *zHost, *zPort;
+    client_data *data;
+    zval zhost, zport;
 
-    zend_call_method_with_0_params(&zConn, NULL, NULL, "getHost", &zHost);
-    zend_call_method_with_0_params(&zConn, NULL, NULL, "getPort", &zPort);
+    zend_call_method_with_0_params(&zclient, NULL, NULL, "getHost", &zhost);
+    zend_call_method_with_0_params(&zclient, NULL, NULL, "getPort", &zport);
 
-    data = (client_data*) zend_object_store_get_object(zConn TSRMLS_CC);
-    data->connection  = take_connection(Z_STRVAL_P(zHost), Z_STRLEN_P(zHost), Z_LVAL_P(zPort) TSRMLS_CC);
+    data = (client_data *) ((char *) zclient - XtOffsetOf(client_data, std));
+    data->connection = take_connection(Z_STRVAL(zhost), Z_STRLEN(zhost), Z_LVAL(zport) TSRMLS_CC);
 
-    zval_ptr_dtor(&zHost);
-    zval_ptr_dtor(&zPort);
+    zval_dtor(&zhost);
+    zval_dtor(&zport);
 
     if ( ! data->connection) {
         return 0;
@@ -172,11 +156,10 @@ int create_object_connection(zval* zConn TSRMLS_DC)/* {{{ */
 Create a new RiakConnection */
 PHP_METHOD(RiakConnection, __construct)
 {
-    client_data *data;
     char *host;
-    int hostLen;
-    long port = DEFAULT_PORT;
-    zval* zbucketarr;
+    size_t hostLen;
+    zend_long port = DEFAULT_PORT;
+    zval zbucketarr;
 
     if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|l", &host, &hostLen, &port) == FAILURE) {
         zend_throw_exception(riak_badarguments_exception_ce, "Bad or missing argument", 500 TSRMLS_CC);
@@ -186,10 +169,9 @@ PHP_METHOD(RiakConnection, __construct)
     zend_update_property_stringl(riak_connection_ce, getThis(), "host", sizeof("host")-1, host, hostLen TSRMLS_CC);
     zend_update_property_long(riak_connection_ce, getThis(), "port", sizeof("port")-1, port TSRMLS_CC);
 
-    MAKE_STD_ZVAL(zbucketarr);
-    array_init(zbucketarr);
-    zend_update_property(riak_connection_ce, getThis(), "buckets", sizeof("buckets")-1, zbucketarr TSRMLS_CC);
-    zval_ptr_dtor(&zbucketarr);
+    array_init(&zbucketarr);
+    zend_update_property(riak_connection_ce, getThis(), "buckets", sizeof("buckets")-1, &zbucketarr TSRMLS_CC);
+    zval_dtor(&zbucketarr);
 }
 /* }}} */
 
@@ -197,11 +179,12 @@ PHP_METHOD(RiakConnection, __construct)
 Get a ServerInfo object */
 PHP_METHOD(RiakConnection, getServerInfo)
 {
-    zval* sinfo;
-    MAKE_STD_ZVAL(sinfo);
-    object_init_ex(sinfo, riak_server_info_ce);
+    zval sinfo;
+
+    object_init_ex(&sinfo, riak_server_info_ce);
     RIAK_CALL_METHOD1(Riak_Server_Info, __construct, NULL, sinfo, getThis());
-    RETURN_ZVAL(sinfo, 0, 1);
+
+    RETURN_ZVAL(&sinfo, 0, 1);
 }
 /* }}} */
 
@@ -210,7 +193,9 @@ Ping riak to see if it is alive, an exception is thrown if no response is receiv
 PHP_METHOD(RiakConnection, ping)
 {
     int pingStatus;
-    riak_connection *connection = get_client_connection(getThis() TSRMLS_CC);
+    riak_connection *connection;
+
+    connection = get_client_connection(getThis() TSRMLS_CC);
 
     THROW_EXCEPTION_IF_CONNECTION_IS_NULL(connection);
 
@@ -240,9 +225,9 @@ PHP_METHOD(RiakConnection, getPort)
 Get a Riak\Bucket */
 PHP_METHOD(RiakConnection, getBucket)
 {
-    char* name;
-    int name_len;
-    zval* zbucketarr, *zbucket;
+    char *name;
+    size_t name_len;
+    zval *zbucketarr, *zbucket;
 
     if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &name, &name_len) == FAILURE) {
         zend_throw_exception(riak_badarguments_exception_ce, "Bad or missing argument", 500 TSRMLS_CC);
@@ -253,10 +238,10 @@ PHP_METHOD(RiakConnection, getBucket)
     zbucketarr = zend_read_property(riak_connection_ce, getThis(), "buckets", sizeof("buckets")-1, 1 TSRMLS_CC);
 
     if (Z_TYPE_P(zbucketarr) == IS_ARRAY) {
-        zval **ztmp;
+        zval ztmp;
 
-        if (zend_hash_find(Z_ARRVAL_P(zbucketarr), name, name_len+1, (void**)&ztmp) == SUCCESS) {
-            RETURN_ZVAL(*ztmp, 1, 0);
+        if ((ztmp = zend_hash_find(Z_ARRVAL_P(zbucketarr), name)) != NULL) {
+            RETURN_ZVAL(&ztmp, 1, 0);
         }
     }
 
