@@ -22,7 +22,7 @@
 
 extern zend_class_entry *riak_link_ce;
 
-zval* create_link_object(const char* tag, const char *bucket, const char* key TSRMLS_DC);
+void create_link_object(zval *zlink, const char* tag, const char *bucket, const char* key TSRMLS_DC);
 
 void riak_link_init(TSRMLS_D);
 

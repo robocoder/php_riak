@@ -49,25 +49,20 @@ void riak_link_init(TSRMLS_D)/* {{{ */
 }
 /* }}} */
 
-zval* create_link_object(const char* tag, const char *bucket, const char* key TSRMLS_DC)/* {{{ */
+void create_link_object(zval *zlink, const char *tag, const char *bucket, const char *key TSRMLS_DC)/* {{{ */
 {
-    zval *zlink, *zbucket, *ztag, *zkey;
+    zval zbucket, ztag, zkey;
 
-    MAKE_STD_ZVAL(zkey);
-    ZVAL_STRING(zkey, key, 1);
-    MAKE_STD_ZVAL(zbucket);
-    ZVAL_STRING(zbucket, bucket, 1);
-    MAKE_STD_ZVAL(ztag);
-    ZVAL_STRING(ztag, tag, 1);
+    ZVAL_STRING(&zkey, key, 1);
+    ZVAL_STRING(&zbucket, bucket, 1);
+    ZVAL_STRING(&ztag, tag, 1);
 
-    MAKE_STD_ZVAL(zlink);
     object_init_ex(zlink, riak_link_ce);
-    RIAK_CALL_METHOD3(RiakLink, __construct, zlink, zlink, ztag, zbucket, zkey);
+    RIAK_CALL_METHOD3(RiakLink, __construct, zlink, zlink, &ztag, &zbucket, &zkey);
 
-    zval_ptr_dtor(&zkey);
-    zval_ptr_dtor(&zbucket);
-    zval_ptr_dtor(&ztag);
-    return zlink;
+    zval_dtor(&zkey);
+    zval_dtor(&zbucket);
+    zval_dtor(&ztag);
 }
 /* }}} */
 
@@ -76,11 +71,12 @@ Create a new link */
 PHP_METHOD(RiakLink, __construct)
 {
     char *key, *bucket, *tag;
-    int keylen, bucketlen, taglen;
+    size_t keylen, bucketlen, taglen;
 
     if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sss", &tag, &taglen, &bucket, &bucketlen, &key, &keylen) == FAILURE) {
         return;
     }
+
     zend_update_property_stringl(riak_link_ce, getThis(), "tag", sizeof("tag")-1, tag, taglen TSRMLS_CC);
     zend_update_property_stringl(riak_link_ce, getThis(), "bucket", sizeof("bucket")-1, bucket, bucketlen TSRMLS_CC);
     zend_update_property_stringl(riak_link_ce, getThis(), "key", sizeof("key")-1, key, keylen TSRMLS_CC);
