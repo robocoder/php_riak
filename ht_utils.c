@@ -19,23 +19,18 @@
 
 void foreach_in_hashtable(void* callingObj, void* custom_ptr, HashTable *ht, ht_entry_callback cb TSRMLS_DC)
 {
-    zval **data;
-    HashPosition pointer;
-    HashTable *hindex = ht;
-    uint key_len, key_type;
-    ulong index;
+    ulong num_key;
+    zend_string *key;
+    zval *zv;
     int cnt = 0;
-    char *key;
-    for(zend_hash_internal_pointer_reset_ex(hindex, &pointer);
-        zend_hash_get_current_data_ex(hindex, (void**)&data, &pointer) == SUCCESS;
-        zend_hash_move_forward_ex(hindex, &pointer)) {
-        key_type = zend_hash_get_current_key_ex(hindex, &key, &key_len, &index, 0, &pointer);
-        if (key_type == HASH_KEY_IS_STRING) {
-            (*cb)(callingObj, custom_ptr, key, key_len, 0, data, &cnt TSRMLS_CC);
-            cnt++;
-        } else if (key_type == HASH_KEY_IS_LONG) {
-            (*cb)(callingObj, custom_ptr, NULL, 0, index, data, &cnt TSRMLS_CC);
-            cnt++;
+
+    ZEND_HASH_FOREACH_KEY_VAL(ht, num_key, key, zv) {
+        if (key) { // HASH_KEY_IS_STRING
+            (*cb)(callingObj, custom_ptr, key, 0, zv, &cnt TSRMLS_CC);
+        } else  {  // HASH_KEY_IS_LONG
+            (*cb)(callingObj, custom_ptr, NULL, num_key, zv, &cnt TSRMLS_CC);
         }
-    }
+
+        cnt++;
+    } ZEND_HASH_FOREACH_END();
 }
